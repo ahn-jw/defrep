@@ -1,0 +1,60 @@
+trigger:
+- main  # main 브랜치에 코드가 푸시되면 자동 실행 (필요 없으면 none으로 변경 가능)
+
+pool:
+  name: 'Private-Server-Pool'  # 사설 서버(serveri)가 소속된 자체 호스팅 에이전트 풀 이름
+  # demand를 이용해 특정 서버(serveri)를 명확히 지정하고 싶다면 아래와 같이 선언할 수 있습니다.
+  demands:
+  - Agent.Name -equals serveri 
+
+variables:
+  # 사용할 JDK 환경변수 정의
+  JAVA_HOME_21: '$(Pipeline.Workspace)/openjdk-21'
+
+stages:
+- stage: ProvisionAndExecute
+  displayName: 'JDK 설치 및 스크립트 실행 단계'
+  jobs:
+  - job: SetupAndRun
+    displayName: 'serveri에서 작업 수행'
+    steps:
+
+    # 1단계: OpenJDK 21 다운로드 및 설치
+    - bash: |
+        echo "=== OpenJDK 21 설치 시작 ==="
+        # 이미 설치되어 있는지 확인 후 없을 때만 다운로드
+        if [ ! -d "$(JAVA_HOME_21)" ]; then
+          mkdir -p $(JAVA_HOME_21)
+          # Adoptium API를 통해 Linux x64용 JDK 21 최신 자산 다운로드
+          wget -q https://api.adoptium.net/v3/binary/latest/21/ga/linux/x64/jdk/hotspot/normal/eclipse -O jdk21.tar.gz
+          # 지정된 경로에 압축 해제 (--strip-components=1은 최상위 폴더 제외하고 내용물만 풀기 위함)
+          tar -xzf jdk21.tar.gz -C $(JAVA_HOME_21) --strip-components=1
+          rm jdk21.tar.gz
+          echo "OpenJDK 21 설치 완료."
+        else
+          echo "OpenJDK 21이 이미 해당 경로에 존재합니다."
+        fi
+      displayName: 'OpenJDK 21 다운로드 및 압축해제'
+
+    # 2단계: 설치된 JDK 기반으로 환경 변수 일시 적용 및 확인
+    - bash: |
+        echo "=== Java 버전 확인 ==="
+        export JAVA_HOME=$(JAVA_HOME_21)
+        export PATH=$JAVA_HOME/bin:$PATH
+        java -version
+      displayName: 'Java 환경 변수 설정 및 버전 검증'
+
+    # 3단계: 리포지토리에 포함된 특정 스크립트 실행
+    # (예: 프로젝트 루트에 있는 'deploy-script.sh'를 실행한다고 가정)
+    - bash: |
+        echo "=== 커스텀 스크립트 실행 ==="
+        # 2단계에서 설정한 Java 환경을 이 Step에서도 유지
+        export JAVA_HOME=$(JAVA_HOME_21)
+        export PATH=$JAVA_HOME/bin:$PATH
+        
+        # 스크립트에 실행 권한 부여 후 실행
+        chmod +x ./scripts/deploy-script.sh
+        ./scripts/deploy-script.sh
+      displayName: '특정 배포/실행 스크립트 가동'
+      # 스크립트 내부에서 실패하더라도 파이프라인을 중단하고 싶지 않다면 아래 옵션 추가 (선택)
+      # continueOnError: false
